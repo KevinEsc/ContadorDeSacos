@@ -2,42 +2,45 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Simulador de Paletizado Preciso</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #020617; }
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #020617; touch-action: none; }
         canvas { display: block; }
-        .ui-overlay { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; }
+        .ui-overlay { position: absolute; top: 10px; left: 10px; z-index: 10; pointer-events: none; }
         .ui-panel { pointer-events: auto; }
+        /* Evitar selección de texto y comportamientos extraños en móvil */
+        * { -webkit-tap-highlight-color: transparent; user-select: none; }
     </style>
 </head>
 <body>
 
-    <div class="ui-overlay w-full max-w-xs p-2">
-        <div class="ui-panel bg-white/95 backdrop-blur-md p-6 rounded-[2rem] shadow-2xl border border-white/50">
-            <h1 class="text-xl font-900 text-slate-900 leading-none tracking-tighter mb-1">Cubicaje de Precisión</h1>
-            <p class="text-indigo-600 text-[10px] font-bold uppercase tracking-[0.2em] mb-6">Bloque Nivelado • 70 Sacos</p>
+    <div class="ui-overlay w-full max-w-[260px] sm:max-w-xs p-1">
+        <div class="ui-panel bg-white/95 backdrop-blur-md p-4 sm:p-6 rounded-[1.5rem] sm:rounded-[2rem] shadow-2xl border border-white/50">
+            <h1 class="text-base sm:text-xl font-900 text-slate-900 leading-none tracking-tighter mb-1">Cubicaje de Precisión</h1>
+            <p class="text-indigo-600 text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.1em] sm:tracking-[0.2em] mb-4 sm:mb-6">Bloque Nivelado • 70 Sacos</p>
 
-            <div class="mb-6">
-                <label class="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Cantidad en Palet</label>
+            <div class="mb-4 sm:mb-6">
+                <label class="block text-[9px] sm:text-[10px] font-black text-slate-400 uppercase mb-1 sm:mb-2 tracking-widest">Cantidad en Palet</label>
                 <input 
                     type="number" 
                     id="sacosInput" 
                     value="10"
                     min="0"
                     max="70"
-                    class="w-full text-4xl font-black px-4 py-3 bg-slate-100 border-2 border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-slate-800"
+                    inputmode="numeric"
+                    class="w-full text-2xl sm:text-4xl font-black px-3 py-2 sm:px-4 sm:py-3 bg-slate-100 border-2 border-slate-200 rounded-xl sm:rounded-2xl focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-slate-800"
                 >
             </div>
 
-            <div id="resultBox" class="bg-slate-900 rounded-2xl p-4 text-white border-b-4 border-indigo-500">
-                <p id="resultText" class="text-sm font-bold italic opacity-90"></p>
+            <div id="resultBox" class="bg-slate-900 rounded-xl sm:rounded-2xl p-3 sm:p-4 text-white border-b-4 border-indigo-500">
+                <p id="resultText" class="text-xs sm:text-sm font-bold italic opacity-90"></p>
             </div>
 
-            <p class="mt-6 text-[9px] text-slate-400 font-bold uppercase text-center tracking-tighter">Arrastra para rotar la carga</p>
+            <p class="mt-4 text-[8px] sm:text-[9px] text-slate-400 font-bold uppercase text-center tracking-tighter">Usa un dedo para rotar • Dos para zoom</p>
         </div>
     </div>
 
@@ -48,18 +51,16 @@
         const SACOS_POR_FILA = 7;
         const TOTAL_MAX = 70;
         
-        // Constantes Geométricas para un ajuste perfecto (4x4 aprox)
-        const W = 1.333; // Ancho del saco
-        const L = 2.0;   // Largo del saco
-        const H = 0.42;  // Altura del saco
+        const W = 1.333; 
+        const L = 2.0;   
+        const H = 0.42;  
         
-        // El bloque total mide: (L + 2W) de ancho y (3W) de profundidad
-        // Con estos valores: 2.0 + 2.666 = 4.666 de ancho | 3 * 1.333 = 4.0 de profundidad
         const TOTAL_WIDTH = L + (2 * W); 
         const TOTAL_DEPTH = 3 * W;
 
-        let isMouseDown = false;
+        let isInteracting = false;
         let targetRotationX = 0.5, targetRotationY = 0.8;
+        let lastTouchX = 0, lastTouchY = 0;
 
         function init() {
             scene = new THREE.Scene();
@@ -71,23 +72,22 @@
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Optimización para pantallas retina
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-            // Iluminación Profesional
             scene.add(new THREE.AmbientLight(0xffffff, 0.4));
             const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
             mainLight.position.set(5, 15, 10);
             mainLight.castShadow = true;
-            mainLight.shadow.mapSize.set(2048, 2048);
+            mainLight.shadow.mapSize.set(1024, 1024);
             scene.add(mainLight);
 
             const blueLight = new THREE.PointLight(0x6366f1, 0.5);
             blueLight.position.set(-10, 5, -5);
             scene.add(blueLight);
 
-            // Grupo unificado para rotación sólida
             mainGroup = new THREE.Group();
             scene.add(mainGroup);
 
@@ -96,15 +96,42 @@
             sackGroup = new THREE.Group();
             mainGroup.add(sackGroup);
 
-            // Controles de ratón
-            document.addEventListener('mousedown', () => isMouseDown = true);
-            document.addEventListener('mouseup', () => isMouseDown = false);
+            // EVENTOS DE RATÓN
+            document.addEventListener('mousedown', () => isInteracting = true);
+            document.addEventListener('mouseup', () => isInteracting = false);
             document.addEventListener('mousemove', (e) => {
-                if(isMouseDown) {
+                if(isInteracting) {
                     targetRotationY += e.movementX * 0.007;
                     targetRotationX += e.movementY * 0.007;
                 }
             });
+
+            // EVENTOS TÁCTILES (ANDROID / IOS)
+            document.addEventListener('touchstart', (e) => {
+                isInteracting = true;
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+            }, { passive: false });
+
+            document.addEventListener('touchend', () => {
+                isInteracting = false;
+            }, { passive: false });
+
+            document.addEventListener('touchmove', (e) => {
+                if(isInteracting) {
+                    const touchX = e.touches[0].clientX;
+                    const touchY = e.touches[0].clientY;
+                    
+                    const deltaX = touchX - lastTouchX;
+                    const deltaY = touchY - lastTouchY;
+                    
+                    targetRotationY += deltaX * 0.007;
+                    targetRotationX += deltaY * 0.007;
+                    
+                    lastTouchX = touchX;
+                    lastTouchY = touchY;
+                }
+            }, { passive: false });
 
             window.addEventListener('resize', onWindowResize);
             updateSacks(10);
@@ -114,7 +141,6 @@
             const woodMat = new THREE.MeshPhongMaterial({ color: 0x4a3728 });
             const palletBase = new THREE.Group();
             
-            // Listones superiores ajustados al bloque de sacos
             const slatWidth = TOTAL_WIDTH + 0.2;
             const slatDepth = 0.5;
             for(let i = 0; i < 6; i++) {
@@ -125,7 +151,6 @@
                 palletBase.add(slat);
             }
 
-            // Vigas de soporte
             const beamGeom = new THREE.BoxGeometry(slatWidth, 0.2, 0.15);
             for(let i = -1; i <= 1; i++) {
                 const beam = new THREE.Mesh(beamGeom, woodMat);
@@ -151,7 +176,6 @@
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
                 
-                // Agregar bordes negros para diferenciar los sacos
                 const edges = new THREE.EdgesGeometry(geometry);
                 const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
                 mesh.add(line);
@@ -161,47 +185,30 @@
 
         function updateSacks(count) {
             sackGroup.clear();
-            
             for (let i = 0; i < TOTAL_MAX; i++) {
                 const layerIndex = Math.floor(i / SACOS_POR_FILA);
                 const posInLayer = i % SACOS_POR_FILA;
                 const isFull = i < count;
                 const isEvenLayer = layerIndex % 2 === 0;
-
                 const bag = createBag(isFull);
                 
-                // LÓGICA DE ALINEACIÓN POR BORDES (Footprint 4.66 x 4.0)
                 if (posInLayer < 4) {
-                    // Bloque de 4 sacos (Verticales)
                     const row = Math.floor(posInLayer / 2);
                     const col = posInLayer % 2;
                     bag.scale.set(W, H, L);
-                    
-                    // Calculamos X para que el borde exterior sea ±TOTAL_WIDTH/2
                     let x = (TOTAL_WIDTH / 2) - L - (W / 2) - (col * W);
                     let z = (row === 0 ? -L/2 : L/2);
-                    
-                    if (!isEvenLayer) {
-                        x = -x; // Inversión para trabado (mantiene el bloque centrado)
-                    }
-
+                    if (!isEvenLayer) { x = -x; }
                     bag.position.set(x, (layerIndex * (H + 0.01)) + 0.75, z);
                 } 
                 else {
-                    // Bloque de 3 sacos (Horizontales)
                     const hIndex = posInLayer - 4;
                     bag.scale.set(L, H, W);
-                    
                     let x = (TOTAL_WIDTH / 2) - (L / 2);
                     let z = (hIndex - 1) * W;
-
-                    if (!isEvenLayer) {
-                        x = -x;
-                    }
-
+                    if (!isEvenLayer) { x = -x; }
                     bag.position.set(x, (layerIndex * (H + 0.01)) + 0.75, z);
                 }
-
                 sackGroup.add(bag);
             }
         }
@@ -227,9 +234,9 @@
             const filas = Math.floor(val / SACOS_POR_FILA);
             const resto = val % SACOS_POR_FILA;
             let msg = "";
-            if (filas > 0 && resto > 0) msg = `Tienes ${filas} ${filas === 1 ? 'fila' : 'filas'} y ${resto} sacos sueltos.`;
-            else if (filas > 0) msg = `Paletizado con ${filas} ${filas === 1 ? 'fila' : 'filas'} completas.`;
-            else msg = `Total actual: ${resto} ${resto === 1 ? 'saco' : 'sacos'}.`;
+            if (filas > 0 && resto > 0) msg = `${filas} ${filas === 1 ? 'fila' : 'filas'} y ${resto} sueltos.`;
+            else if (filas > 0) msg = `${filas} ${filas === 1 ? 'fila' : 'filas'} completa(s).`;
+            else msg = `${resto} ${resto === 1 ? 'saco' : 'sacos'}.`;
             resultText.innerText = msg;
         }
 
